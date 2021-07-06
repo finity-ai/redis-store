@@ -1,11 +1,3 @@
-if defined?(ActionDispatch::Flash::FlashHash)
-  class ActionDispatch::Flash::FlashHash
-    def to_json(*args)
-      {}.merge(self).merge({:used => @used}).to_json
-    end
-  end
-end
-
 class Redis
   class Store < self
     module Strategy
@@ -31,7 +23,7 @@ class Redis
 
           def _load(string)
             object =
-              string.start_with?(*MARSHAL_INDICATORS) ? ::Marshal.load(string) : JSON.parse(string, :symbolize_names => true)
+              string.start_with?(*MARSHAL_INDICATORS) ? ::Marshal.load(string) : JSON.parse(string)
             _unmarshal(object)
           end
 
@@ -48,17 +40,8 @@ class Redis
             when *SERIALIZABLE
               object
             else
-              if is_flash_hash?(object)
-                object
-              else
-                raise SerializationError.new(object)
-              end
+              raise SerializationError.new(object)
             end
-          end
-
-          def is_flash_hash?(object)
-            defined?(ActionDispatch::Flash::FlashHash) &&
-              object.kind_of?(ActionDispatch::Flash::FlashHash)
           end
 
           def marshal_hash(object)
@@ -68,7 +51,7 @@ class Redis
           def _unmarshal(object)
             case object
             when Hash
-              object.each { |k,v| object[k] = k.to_sym == :flash ? _flash_unmarshal(v) :  _unmarshal(v) }
+              object.each { |k,v| object[k] = _unmarshal(v) }
             when Array
               object.each_with_index { |v, i| object[i] = _unmarshal(v) }
             when String
@@ -76,16 +59,6 @@ class Redis
             else
               object
             end
-          end
-
-          # Unfortunately rails requires the flash hash to be put into a flash hash object
-          def _flash_unmarshal(value)
-            return value unless defined?(ActionDispatch::Flash::FlashHash)
-            used  = value.delete(:used)
-            flash = ActionDispatch::Flash::FlashHash.new.update(value)
-            # preserve what has been used so that .sweep will remove it
-            flash.instance_variable_set("@used", Set.new(used.map(&:to_sym))) if used
-            return flash
           end
 
       end
